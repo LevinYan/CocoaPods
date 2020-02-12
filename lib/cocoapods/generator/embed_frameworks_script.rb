@@ -130,26 +130,27 @@ module Pod
           install_dsym() {
             local source="$1"
             if [ -r "$source" ]; then
-              # Copy the dSYM into a the targets temp dir.
-              echo "rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --filter \\"- CVS/\\" --filter \\"- .svn/\\" --filter \\"- .git/\\" --filter \\"- .hg/\\" --filter \\"- Headers\\" --filter \\"- PrivateHeaders\\" --filter \\"- Modules\\" \\"${source}\\" \\"${DERIVED_FILES_DIR}\\""
+              # Copy the dSYM into the targets temp dir.
+              echo "rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --filter \"- CVS/\" --filter \"- .svn/\" --filter \"- .git/\" --filter \"- .hg/\" --filter \"- Headers\" --filter \"- PrivateHeaders\" --filter \"- Modules\" \"${source}\" \"${DERIVED_FILES_DIR}\""
               rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --filter "- CVS/" --filter "- .svn/" --filter "- .git/" --filter "- .hg/" --filter "- Headers" --filter "- PrivateHeaders" --filter "- Modules" "${source}" "${DERIVED_FILES_DIR}"
-
+          
               local basename
-              basename="$(basename -s .framework.dSYM "$source")"
-              binary="${DERIVED_FILES_DIR}/${basename}.framework.dSYM/Contents/Resources/DWARF/${basename}"
-
+              basename="$(basename -s .dSYM "$source")"
+              binary_name="$(ls "$source/Contents/Resources/DWARF")"
+              binary="${DERIVED_FILES_DIR}/${basename}.dSYM/Contents/Resources/DWARF/${binary_name}"
+          
               # Strip invalid architectures so "fat" simulator / device frameworks work on device
               if [[ "$(file "$binary")" == *"Mach-O "*"dSYM companion"* ]]; then
                 strip_invalid_archs "$binary"
               fi
-
+          
               if [[ $STRIP_BINARY_RETVAL == 1 ]]; then
                 # Move the stripped file into its final destination.
-                echo "rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --links --filter \\"- CVS/\\" --filter \\"- .svn/\\" --filter \\"- .git/\\" --filter \\"- .hg/\\" --filter \\"- Headers\\" --filter \\"- PrivateHeaders\\" --filter \\"- Modules\\" \\"${DERIVED_FILES_DIR}/${basename}.framework.dSYM\\" \\"${DWARF_DSYM_FOLDER_PATH}\\""
-                rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --links --filter "- CVS/" --filter "- .svn/" --filter "- .git/" --filter "- .hg/" --filter "- Headers" --filter "- PrivateHeaders" --filter "- Modules" "${DERIVED_FILES_DIR}/${basename}.framework.dSYM" "${DWARF_DSYM_FOLDER_PATH}"
+                echo "rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --links --filter \"- CVS/\" --filter \"- .svn/\" --filter \"- .git/\" --filter \"- .hg/\" --filter \"- Headers\" --filter \"- PrivateHeaders\" --filter \"- Modules\" \"${DERIVED_FILES_DIR}/${basename}.dSYM\" \"${DWARF_DSYM_FOLDER_PATH}\""
+                rsync --delete -av "${RSYNC_PROTECT_TMP_FILES[@]}" --links --filter "- CVS/" --filter "- .svn/" --filter "- .git/" --filter "- .hg/" --filter "- Headers" --filter "- PrivateHeaders" --filter "- Modules" "${DERIVED_FILES_DIR}/${basename}.dSYM" "${DWARF_DSYM_FOLDER_PATH}"
               else
                 # The dSYM was not stripped at all, in this case touch a fake folder so the input/output paths from Xcode do not reexecute this script because the file is missing.
-                touch "${DWARF_DSYM_FOLDER_PATH}/${basename}.framework.dSYM"
+                touch "${DWARF_DSYM_FOLDER_PATH}/${basename}.dSYM"
               fi
             fi
           }
@@ -258,6 +259,18 @@ module Pod
         fi
         SH
         script
+      end
+
+      # @param  [Xcode::FrameworkPaths] framework_path
+      #         the framework path containing the dSYM
+      #
+      # @return [String, Nil] the name of the dSYM binary, if found
+      #
+      def dsym_binary_name(framework_path)
+        return nil if framework_path.dsym_path.nil?
+        if (path = Pathname.glob(framework_path.dsym_path.join('Contents/Resources/DWARF', '**/*')).first)
+          File.basename(path)
+        end
       end
     end
   end

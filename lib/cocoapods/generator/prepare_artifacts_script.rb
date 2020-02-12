@@ -137,6 +137,7 @@ module Pod
           install_xcframework() {
             local basepath="$1"
             local embed="$2"
+            local dsym_folder="$3"
             shift
             local paths=("$@")
 
@@ -165,6 +166,25 @@ module Pod
             fi
 
             install_framework "$basepath/$target_path" "$embed"
+
+            local dsyms=()
+            if [[ ! -z "$dsym_folder" && -d "$dsym_folder" ]]; then
+              dsyms=($(ls "$dsym_folder"))
+            fi
+              
+            local target_dsym=""
+            for i in ${!dsyms[@]}; do
+              if [[ "${dsyms[$i]}" == *"$target_arch"* ]] && [[ "${dsyms[$i]}" == *"$target_variant"* ]]; then
+                # Found a matching slice
+                target_dsym="${dsym_folder}/${dsyms[$i]}"
+                break;
+              fi
+            done
+            
+            if [[ ! -z "$target_dsym" ]]; then
+              echo "Selected dSYM $target_dsym"
+              install_artifact "$target_dsym" "$TARGET_BUILD_DIR" "true"
+            fi
           }
 
         SH
@@ -187,11 +207,11 @@ module Pod
               contents_by_config[config] << %(  install_xcframework #{args}\n)
             end
 
-            dsyms = PrepareArtifactsScript.dsym_paths(xcframework.path)
-            dsyms.each do |path|
-              source = shell_escape("${PODS_ROOT}/#{path.relative_path_from(sandbox_root)}")
-              contents_by_config[config] << %(  install_artifact #{source} "${TARGET_BUILD_DIR}" "true"\n)
-            end
+            # dsyms = PrepareArtifactsScript.dsym_paths(xcframework.path)
+            # dsyms.each do |path|
+            #   source = shell_escape("${PODS_ROOT}/#{path.relative_path_from(sandbox_root)}")
+            #   contents_by_config[config] << %(  install_artifact #{source} "${TARGET_BUILD_DIR}" "true"\n)
+            # end
           end
         end
 
@@ -215,6 +235,12 @@ module Pod
 
       def install_xcframework_args(root, slices, static)
         args = [shell_escape("${PODS_ROOT}/#{root.relative_path_from(sandbox_root)}")]
+        if (dsym_folder = PrepareArtifactsScript.dsym_folder(root))
+          dsym_folder_arg = shell_escape("${PODS_ROOT}/#{dsym_folder.relative_path_from(sandbox_root)}")
+        else
+          dsym_folder_arg = ""
+        end
+        args << shell_escape(dsym_folder_arg)
         embed = static ? 'false' : 'true'
         args << shell_escape(embed)
         slices.each do |slice|
@@ -229,14 +255,11 @@ module Pod
         #
         # @return [Array<Pathname>] all found .dSYM paths
         #
-        def dsym_paths(xcframework_path)
+        def dsym_folder(xcframework_path)
           basename = File.basename(xcframework_path, '.xcframework')
           dsym_basename = basename + '.dSYMs'
           path = xcframework_path.dirname + dsym_basename
-          return [] unless File.directory?(path)
-
-          pattern = path + '*.dSYM'
-          Dir.glob(pattern).map { |s| Pathname.new(s) }
+          Pathname.new(path) if File.directory?(path)
         end
       end
     end
